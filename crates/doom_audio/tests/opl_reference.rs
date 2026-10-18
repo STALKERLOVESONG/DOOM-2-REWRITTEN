@@ -96,12 +96,17 @@ fn player_writes_match_reference() {
     let stack = ResourceStack::load(&iwad, &[]).unwrap();
     let bank = Arc::new(Genmidi::parse(stack.lump("GENMIDI").unwrap()).unwrap());
     for song in SONGS {
+        // The episode 2 song is missing from the shareware IWAD.
+        let Some(lump) = stack.lump(song) else {
+            eprintln!("{song}: not in this IWAD, skipped");
+            continue;
+        };
         let f = fixture(song);
         let reference: Vec<(u16, u8)> = f.writes[f.first_song_write..].iter().map(|w| (w.1, w.2)).collect();
         let mut p = MusicPlayer::new(bank.clone(), 44100);
         p.set_volume(64);
         p.start_trace();
-        p.play(Arc::new(Song::parse(stack.lump(song).unwrap()).unwrap()), true);
+        p.play(Arc::new(Song::parse(lump).unwrap()), true);
         let mut buf = vec![0i16; 2 * 44100 * 10];
         p.render(&mut buf);
         let ours: Vec<(u16, u8)> = p.take_trace().iter().map(|w| (w.1, w.2)).collect();

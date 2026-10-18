@@ -1,12 +1,17 @@
-//! MUS music played through the OPL chip with the GENMIDI instrument bank,
-//! following DMX as reconstructed by Chocolate Doom's `i_oplmusic.c`
-//! (Doom 1.9 driver behaviour, OPL2 mode, 9 voices).
+//! Music: MUS and MIDI played through the OPL chip with the GENMIDI
+//! instrument bank, following DMX as reconstructed by Chocolate Doom's
+//! `i_oplmusic.c` (Doom 1.9 driver behaviour, OPL2 mode, 9 voices), and
+//! digital music ([`Song::Stream`]) that the mixer plays as PCM.
 //!
 //! DMX works on MUS events directly (Chocolate converts to MIDI and maps
-//! back); this player reads MUS natively, so channel 15 is percussion.
+//! back); this player reads MUS natively, so channel 15 is percussion. MIDI
+//! channels are swapped 9 <-> 15 on the way in, exactly as Chocolate's
+//! `TrackChannelForEvent` does, so both formats share the channel logic.
 
 use std::sync::Arc;
 
+use crate::midi::{self, MidiEventKind, MidiSong, TimeDivision};
+use crate::mixer::Sound;
 use crate::opl::Opl;
 
 /// MUS timing: 140 ticks per second.
@@ -178,12 +183,54 @@ pub enum MusEvent {
 /// A parsed MUS lump: events with the delay (in 140 Hz ticks) that follows
 /// each one.
 #[derive(Clone, Debug)]
-pub struct Song {
+pub struct MusScore {
     pub events: Vec<(MusEvent, u32)>,
 }
 
+/// A music resource, recognised from its data (mods store MIDI and Ogg
+/// files in `D_*` lumps and under misleading names).
+#[derive(Clone, Debug)]
+pub enum Song {
+    Mus(MusScore),
+    Midi(MidiSong),
+    /// Ogg Vorbis, FLAC, MP3 or WAV music, decoded once to PCM. The mixer
+    /// plays it directly; the OPL player is not involved.
+    Stream(Arc<Sound>),
+}
+
 impl Song {
-    pub fn parse(lump: &[u8]) -> Result<Song, String> {
+    pub fn parse(data: &[u8]) -> Result<Song, String> {
+        if data.starts_with(b"MUS\x1a") {
+            return MusScore::parse(data).map(Song::Mus);
+        }
+        if midi::is_midi(data) {
+            return MidiSong::parse(data).map(Song::Midi);
+        }
+        match crate::decode::sniff(data) {
+            crate::SoundFormat::Wav | crate::SoundFormat::Ogg | crate::SoundFormat::Flac | crate::SoundFormat::Mp3 => {
+                crate::decode::decode(data).map(|s| Song::Stream(Arc::new(s)))
+            }
+            _ => Err("unrecognised music format".into()),
+        }
+    }
+
+    /// The format, for diagnostics.
+    pub fn format_name(&self) -> &'static str {
+        match self {
+            Song::Mus(_) => "MUS",
+            Song::Midi(_) => "MIDI",
+            Song::Stream(_) => "digital",
+        }
+    }
+
+    /// Whether the OPL player handles this song (MUS and MIDI need GENMIDI).
+    pub fn is_synthesized(&self) -> bool {
+        !matches!(self, Song::Stream(_))
+    }
+}
+
+impl MusScore {
+    pub fn parse(lump: &[u8]) -> Result<MusScore, String> {
         if lump.len() < 16 || &lump[0..4] != b"MUS\x1a" {
             return Err("not a MUS lump".into());
         }
@@ -236,7 +283,7 @@ impl Song {
         if !matches!(events.last(), Some((MusEvent::ScoreEnd, _))) {
             events.push((MusEvent::ScoreEnd, 0));
         }
-        Ok(Song { events })
+        Ok(MusScore { events })
     }
 }
 
@@ -285,7 +332,10 @@ pub struct MusicPlayer {
     channels: [ChannelState; NUM_CHANNELS],
     song: Option<Arc<Song>>,
     looping: bool,
+    /// MUS: index of the next event.
     pos: usize,
+    /// MIDI playback state (`opl_track_data_t`s plus the global tempo).
+    midi: MidiState,
     /// Output samples until the next event, in 1/140 s ticks scaled by the
     /// output rate (fixed point: samples * 140).
     wait: u64,
@@ -325,6 +375,7 @@ impl MusicPlayer {
             song: None,
             looping: false,
             pos: 0,
+            midi: MidiState::default(),
             wait: 0,
             sample_rate,
             current_volume: 64,
@@ -397,6 +448,12 @@ impl MusicPlayer {
 
     pub fn play(&mut self, song: Arc<Song>, looping: bool) {
         self.stop();
+        if !song.is_synthesized() {
+            return;
+        }
+        if let Song::Midi(m) = &*song {
+            self.midi.start(m);
+        }
         self.song = Some(song);
         self.looping = looping;
         self.pos = 0;
@@ -657,9 +714,9 @@ impl MusicPlayer {
         }
     }
 
-    fn pitch_bend(&mut self, ch: usize, bend: u8) {
-        // DMX only uses the MSB: MUS 0..255 -> MIDI MSB 0..127.
-        self.channels[ch].bend = (bend >> 1) as i32 - 64;
+    /// `bend`: the MIDI MSB minus 64 (DMX ignores the LSB).
+    fn pitch_bend(&mut self, ch: usize, bend: i32) {
+        self.channels[ch].bend = bend;
         let mut updated = Vec::new();
         let mut others = Vec::new();
         for &v in &self.alloced.clone() {
@@ -674,7 +731,7 @@ impl MusicPlayer {
         self.alloced = others;
     }
 
-    fn process(&mut self, ev: MusEvent) {
+    fn process_mus(&mut self, ev: MusEvent) {
         match ev {
             MusEvent::ReleaseNote { channel, note } => self.key_off(channel as usize, note as u32),
             MusEvent::PlayNote { channel, note, volume } => {
@@ -685,7 +742,8 @@ impl MusicPlayer {
                 let vel = self.channels[ch].last_velocity as u32;
                 self.key_on(ch, note as u32, vel);
             }
-            MusEvent::PitchBend { channel, bend } => self.pitch_bend(channel as usize, bend),
+            // MUS 0..255 -> MIDI MSB 0..127.
+            MusEvent::PitchBend { channel, bend } => self.pitch_bend(channel as usize, (bend >> 1) as i32 - 64),
             // Only 11 (all notes off) has an effect in DMX; 10 (all sounds
             // off), mono/poly and reset are ignored.
             MusEvent::System { channel, controller } => {
@@ -722,6 +780,21 @@ impl MusicPlayer {
     /// Process every event due at the current sample.
     fn advance(&mut self) {
         let Some(song) = self.song.clone() else { return };
+        match &*song {
+            Song::Mus(score) => self.advance_mus(score),
+            Song::Midi(m) => self.advance_midi(m),
+            Song::Stream(_) => {}
+        }
+    }
+
+    fn restart_channels(&mut self) {
+        self.start_volume = self.current_volume;
+        for ch in 0..NUM_CHANNELS {
+            self.init_channel(ch);
+        }
+    }
+
+    fn advance_mus(&mut self, song: &MusScore) {
         // `wait` counts in units of 1/(rate*140) s: each sample consumes 140.
         while self.wait < MUS_TICK_RATE as u64 {
             let Some(&(ev, delay)) = song.events.get(self.pos) else {
@@ -733,10 +806,7 @@ impl MusicPlayer {
             if ev == MusEvent::ScoreEnd {
                 if self.looping {
                     self.pos = 0;
-                    self.start_volume = self.current_volume;
-                    for ch in 0..NUM_CHANNELS {
-                        self.init_channel(ch);
-                    }
+                    self.restart_channels();
                     // Guard against empty songs looping forever in one sample.
                     self.wait += self.sample_rate as u64 * MUS_TICK_RATE as u64 / 200;
                 } else {
@@ -744,9 +814,142 @@ impl MusicPlayer {
                 }
                 return;
             }
-            self.process(ev);
+            self.process_mus(ev);
             self.wait += delay as u64 * self.sample_rate as u64;
         }
         self.wait -= MUS_TICK_RATE as u64;
+    }
+
+    /// MIDI: every track runs on its own timer (`TrackTimerCallback`).
+    /// Events whose time has come, at or before this sample, are processed
+    /// in time order (lower track first on ties).
+    fn advance_midi(&mut self, song: &MidiSong) {
+        let now = self.midi.clock;
+        self.midi.clock += 1;
+        loop {
+            // Earliest pending track event.
+            let Some((t, due)) = self
+                .midi
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(_, tr)| !tr.done)
+                .min_by_key(|(_, tr)| tr.due_us)
+                .map(|(i, tr)| (i, tr.due_us))
+            else {
+                return;
+            };
+            // Due when due_us <= now / rate seconds.
+            if due as u128 * self.sample_rate as u128 > now as u128 * 1_000_000 {
+                return;
+            }
+            let track = &song.tracks[t];
+            let ev = track[self.midi.tracks[t].pos];
+            self.midi.tracks[t].pos += 1;
+            if ev.kind == MidiEventKind::EndOfTrack {
+                self.midi.tracks[t].done = true;
+                self.midi.running -= 1;
+                if self.midi.running == 0 {
+                    if self.looping {
+                        // `RestartSong`: every track restarts from this
+                        // moment; the tempo is not reset.
+                        let mut start = due;
+                        if self.midi.last_restart == Some(due) {
+                            // An empty song would loop forever at one instant.
+                            start += 5000;
+                        }
+                        self.midi.last_restart = Some(start);
+                        self.midi.restart(song, start);
+                        self.restart_channels();
+                        continue;
+                    }
+                    self.stop();
+                    return;
+                }
+                continue;
+            }
+            self.process_midi(ev.kind, song.division);
+            // `ScheduleTrack`: the delay before the following event, at the
+            // tempo now in force.
+            match track.get(self.midi.tracks[t].pos) {
+                Some(next) => self.midi.tracks[t].due_us = due + self.midi.ticks_to_us(next.delta, song.division),
+                None => {
+                    self.midi.tracks[t].done = true;
+                    self.midi.running -= 1;
+                }
+            }
+        }
+    }
+
+    fn process_midi(&mut self, ev: MidiEventKind, division: TimeDivision) {
+        // `TrackChannelForEvent`: MIDI percussion is channel 9, DMX's is 15.
+        let ch = |c: u8| match c {
+            9 => 15,
+            15 => 9,
+            c => c as usize,
+        };
+        match ev {
+            MidiEventKind::NoteOff { channel, key } => self.key_off(ch(channel), key as u32),
+            MidiEventKind::NoteOn { channel, key, velocity } => self.key_on(ch(channel), key as u32, velocity as u32),
+            MidiEventKind::Controller { channel, controller, value } => match controller {
+                7 => self.set_channel_volume(ch(channel), value as u32, true),
+                123 => self.all_notes_off(ch(channel)),
+                // Pan (10) only matters in OPL3 mode; DMX ignores the rest.
+                _ => {}
+            },
+            MidiEventKind::ProgramChange { channel, program } => self.channels[ch(channel)].instrument = program as usize,
+            MidiEventKind::PitchBend { channel, msb } => self.pitch_bend(ch(channel), msb as i32 - 64),
+            MidiEventKind::Tempo(us) => {
+                if matches!(division, TimeDivision::TicksPerBeat(_)) {
+                    self.midi.us_per_beat = us;
+                }
+            }
+            MidiEventKind::EndOfTrack | MidiEventKind::Other => {}
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct MidiTrack {
+    /// Index of the next event.
+    pos: usize,
+    /// When that event is due, in microseconds of song time.
+    due_us: u64,
+    done: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MidiState {
+    tracks: Vec<MidiTrack>,
+    running: usize,
+    us_per_beat: u32,
+    /// Output samples since the song started.
+    clock: u64,
+    last_restart: Option<u64>,
+}
+
+impl MidiState {
+    fn start(&mut self, song: &MidiSong) {
+        self.us_per_beat = 500_000;
+        self.clock = 0;
+        self.last_restart = None;
+        self.restart(song, 0);
+    }
+
+    fn restart(&mut self, song: &MidiSong, at_us: u64) {
+        self.tracks.clear();
+        for track in &song.tracks {
+            let due_us = at_us + track.first().map_or(0, |e| self.ticks_to_us(e.delta, song.division));
+            self.tracks.push(MidiTrack { pos: 0, due_us, done: track.is_empty() });
+        }
+        self.running = self.tracks.iter().filter(|t| !t.done).count();
+    }
+
+    /// `(nticks * us_per_beat) / ticks_per_beat`, truncated like Chocolate.
+    fn ticks_to_us(&self, ticks: u32, division: TimeDivision) -> u64 {
+        match division {
+            TimeDivision::TicksPerBeat(tpb) => ticks as u64 * self.us_per_beat as u64 / tpb as u64,
+            TimeDivision::TicksPerSecond(tps) => ticks as u64 * 1_000_000 / tps as u64,
+        }
     }
 }

@@ -650,7 +650,16 @@ impl SoundSystem {
         let song = self
             .songs
             .entry(lump.to_string())
-            .or_insert_with(|| stack.find_sound(lump).map(|id| stack.data(id)).and_then(|d| Song::parse(d).ok()).map(Arc::new))
+            .or_insert_with(|| {
+                let data = stack.data(stack.find_sound(lump)?);
+                match Song::parse(data) {
+                    Ok(song) => Some(Arc::new(song)),
+                    Err(e) => {
+                        self.warnings.push(format!("music {lump}: {e}"));
+                        None
+                    }
+                }
+            })
             .clone();
         self.current_music = Some(lump.to_string());
         match song {

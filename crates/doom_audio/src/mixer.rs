@@ -70,11 +70,26 @@ struct Voice {
     looping: bool,
 }
 
+/// Digital music being played (`Song::Stream`).
+#[derive(Clone, Debug)]
+struct Stream {
+    sound: Arc<Sound>,
+    /// 32.32 fixed point source frames, as [`Voice`].
+    pos: u64,
+    step: u64,
+    looping: bool,
+}
+
 /// Mixes sound-effect channels and music into interleaved stereo `f32`.
 pub struct Mixer {
     rate: u32,
     voices: Vec<Option<Voice>>,
     music: Option<MusicPlayer>,
+    stream: Option<Stream>,
+    /// Music volume 0..=127 and pause state, for digital music (the OPL
+    /// player keeps its own).
+    music_volume: u32,
+    music_paused: bool,
     music_buf: Vec<i16>,
     /// DC blocker state per channel (x[n-1], y[n-1]).
     dc: [(f32, f32); 2],
@@ -88,6 +103,9 @@ impl Mixer {
             rate,
             voices: vec![None; channels],
             music: genmidi.map(|g| MusicPlayer::new(g, rate)),
+            stream: None,
+            music_volume: 64,
+            music_paused: false,
             music_buf: Vec::new(),
             dc: [(0.0, 0.0); 2],
             // One-pole high-pass at ~3 Hz.
@@ -128,21 +146,34 @@ impl Mixer {
                 }
             }
             AudioCommand::PlayMusic { song, looping } => {
+                self.stream = match &*song {
+                    Song::Stream(sound) if sound.frames() > 0 => Some(Stream {
+                        sound: sound.clone(),
+                        pos: 0,
+                        step: ((sound.rate as u64) << 32) / self.rate as u64,
+                        looping,
+                    }),
+                    _ => None,
+                };
                 if let Some(m) = &mut self.music {
+                    // A digital song stops whatever the OPL was playing.
                     m.play(song, looping);
                 }
             }
             AudioCommand::StopMusic => {
+                self.stream = None;
                 if let Some(m) = &mut self.music {
                     m.stop();
                 }
             }
             AudioCommand::PauseMusic(p) => {
+                self.music_paused = p;
                 if let Some(m) = &mut self.music {
                     m.set_paused(p);
                 }
             }
             AudioCommand::SetMusicVolume(v) => {
+                self.music_volume = v.min(127);
                 if let Some(m) = &mut self.music {
                     m.set_volume(v);
                 }
@@ -166,6 +197,14 @@ impl Mixer {
                 *x1 = x;
                 *y1 = y;
                 *o = y;
+            }
+        }
+        if !self.music_paused {
+            let gain = self.music_volume as f32 / 127.0;
+            if let Some(s) = &mut self.stream {
+                if !mix_stream(s, out, gain) {
+                    self.stream = None;
+                }
             }
         }
         for slot in &mut self.voices {
@@ -200,4 +239,31 @@ impl Mixer {
             *o = o.clamp(-1.0, 1.0);
         }
     }
+}
+
+/// Mix digital music into `out`; false once a non-looping song has ended.
+fn mix_stream(s: &mut Stream, out: &mut [f32], gain: f32) -> bool {
+    let ch = s.sound.channels.max(1) as usize;
+    let data = &s.sound.samples;
+    let n = (data.len() / ch) as u64;
+    for frame in out.chunks_exact_mut(2) {
+        let mut i = (s.pos >> 32) as usize;
+        if i as u64 >= n {
+            if !s.looping {
+                return false;
+            }
+            s.pos %= n << 32;
+            i = (s.pos >> 32) as usize;
+        }
+        let t = (s.pos & 0xffff_ffff) as f32 / 4294967296.0;
+        let at = |k: usize, c: usize| data[k * ch + c] as f32 / 32768.0;
+        // Interpolate towards the start of the song when looping.
+        let next = if i + 1 < n as usize { i + 1 } else if s.looping { 0 } else { i };
+        let l = at(i, 0) + (at(next, 0) - at(i, 0)) * t;
+        let r = if ch >= 2 { at(i, 1) + (at(next, 1) - at(i, 1)) * t } else { l };
+        frame[0] += l * gain;
+        frame[1] += r * gain;
+        s.pos += s.step;
+    }
+    true
 }

@@ -57,7 +57,7 @@ fn music_renders() {
     for name in ["D_E1M1", "D_INTRO", "D_E2M1", "D_INTER", "D_VICTOR"] {
         let Some(lump) = stack.lump(name) else { continue };
         let song = Arc::new(Song::parse(lump).unwrap());
-        assert!(song.events.len() > 10);
+        assert!(matches!(&*song, Song::Mus(m) if m.events.len() > 10));
         mixer.apply(AudioCommand::PlayMusic { song, looping: false });
         let mut out = vec![0f32; rate as usize * 2 * 8];
         mixer.render(&mut out);

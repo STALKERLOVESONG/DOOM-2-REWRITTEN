@@ -1,0 +1,55 @@
+# Builds the game and the launcher on Windows and uploads a ready-to-play
+# folder (doom_bevy.exe, doom_launcher.exe, RESOURCES) as an artifact.
+# Pushing a tag like v0.2.0 also publishes it as a GitHub release.
+#
+# No game data is involved: players bring their own IWAD.
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build game and launcher
+        run: cargo build --release -p doom_bevy -p doom_launcher
+
+      # Unit tests run; the IWAD tests skip themselves without game data.
+      - name: Engine and launcher tests
+        run: cargo test --release -p doom_core -p doom_content -p doom_sim -p doom_render -p doom_audio -p doom_game -p doom_script -p doom_launcher
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "dist/DoomBevy"
+          New-Item -ItemType Directory -Force $out, "$out/WADS" | Out-Null
+          Copy-Item target/release/doom_bevy.exe, target/release/doom_launcher.exe $out
+          Copy-Item -Recurse RESOURCES "$out/RESOURCES"
+          Copy-Item docs/PLAYING.txt "$out/README.txt"
+          Set-Content "$out/WADS/put your IWAD here.txt" "Copy doom.wad, doom2.wad (or tnt.wad, plutonia.wad, freedoom2.wad ...) from your own copy of the game into this folder."
+          Compress-Archive -Path "$out/*" -DestinationPath dist/DoomBevy-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DoomBevy-windows
+          path: dist/DoomBevy
+
+      - name: Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/DoomBevy-windows.zip

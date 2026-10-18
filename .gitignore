@@ -1,9 +1,9 @@
 /target
+/dist/
 # Game data (IWADs, PWADs, patches) stays local: commercial IWADs must never be committed.
 /WADS/
 *.wad
-<<<<<<< HEAD
 *.WAD
-=======
-*.WAD
->>>>>>> 037e127f25af3e36b8f44a7e4c98f1016c2c7e74
+# Written by the game and the launcher at run time.
+/launcher.cfg
+/doom_log.txt

@@ -1,0 +1,31 @@
+DOOM (Rust + Bevy engine)
+=========================
+
+1. Start doom_launcher.exe.
+
+2. Pick your game. The launcher looks for IWADs next to it, in the WADS
+   folder, in DOOMWADDIR, and in Steam and GOG installs of DOOM. If yours
+   isn't listed, click Browse... and select the .wad file from your own copy
+   (doom.wad, doom2.wad, tnt.wad, plutonia.wad ...), or drop it on the window.
+   No copy? Freedoom (https://freedoom.github.io/) is free.
+
+3. Optional: add mods (.wad, .pk3, .deh, .bex) with Add... or by dropping
+   them on the window. They load top to bottom; later ones override earlier
+   ones.
+
+4. Optional: a start map (E1M1, MAP01 ...) and skill, fullscreen, the
+   classic renderer, monster options. Leave the map empty for the title
+   screen and menu.
+
+5. Click LAUNCH.
+
+The launcher remembers your choices in launcher.cfg. The game's messages go
+to doom_log.txt; if the game stops with an error, the launcher shows them.
+
+Keep doom_launcher.exe, doom_bevy.exe and the RESOURCES folder together.
+doom_bevy.exe can also be started directly; run "doom_bevy.exe --help" in a
+terminal for every option.
+
+Controls: WASD or arrows move, mouse looks, Ctrl/left mouse fires,
+Space/E uses, 1-7 pick weapons, Tab automap, Esc menu, ` console,
+Alt+Enter fullscreen, F12 screenshot.

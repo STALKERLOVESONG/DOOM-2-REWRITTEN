@@ -2,6 +2,16 @@
 
 A Rust-native Doom engine with a Bevy front end. It aims to be broadly faithful to classic Doom while staying easy to read, modify and extend into a Doom-style engine and modding platform.
 
+## Play (Windows)
+
+Download `DoomBevy-windows` from the latest run of the **Windows build** workflow (Actions tab), or from Releases, or build it yourself with `build.bat` (needs [Rust](https://rustup.rs); output in `dist\DoomBevy`). Then start **`doom_launcher.exe`**:
+
+- it finds your IWAD (next to it, in `WADS`, `DOOMWADDIR`, Steam and GOG installs), or **Browse...** to the `.wad` from your own copy (or drop it on the window);
+- add mods (`.wad`, `.pk3`, `.deh`, `.bex`) in load order;
+- pick a start map, skill and options, and **LAUNCH**.
+
+No game data ships with the engine; bring your own IWAD, or use the free [Freedoom](https://freedoom.github.io/).
+
 ## Run
 
 ```

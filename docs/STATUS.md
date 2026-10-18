@@ -1,6 +1,8 @@
 # Status
 
-Updated 2026-10-07 (mods round).
+Updated 2026-10-18 (mod formats, part 2: music formats, DEHACKED, node builder).
+
+> The code has gained work this document doesn't describe yet: ACS (`crates/doom_script/src/acs`, `doom_sim/src/acs_host.rs`), a ZScript parser, the developer console and CVars, and skateboard mode (see `docs/CONSOLE_AND_SKATE.md`). Sections below that say these are missing predate that work.
 
 ## Project direction
 
@@ -22,6 +24,15 @@ Updated 2026-10-07 (mods round).
   - **DECORATE subset:** new actors and replacements, inheritance from Doom classes, basic properties and flags, states with Doom action functions, gotos, `#include`.
   - **MAPINFO/ZMAPINFO/UMAPINFO subset:** level name, sky, music, next/secret next.
   - **Tolerant loading:** unknown thing types are skipped with a warning.
+- **Mod formats, part 2 (2026-10-18):**
+  - **Sounds:** DMX, WAV (8/16/24/32-bit integer, float, extensible), Ogg Vorbis, FLAC and MP3 (the last three through `symphonia`), recognised from the data rather than the name.
+  - **MIDI music** (SMF format 0/1/2, RIFF RMID) plays on the OPL through the same DMX voice logic as MUS. It follows Chocolate's `i_oplmusic.c` MIDI path: per-track timers, delays truncated to whole microseconds, global tempo, the 9 <-> 15 channel swap, `RestartSong` on loop.
+  - **Digital music:** Ogg/FLAC/MP3/WAV songs are decoded once and mixed as a looping PCM stream (music volume and pause apply; no GENMIDI needed). `Song::parse` tells MUS, MIDI and digital music apart.
+  - **DEHACKED** (`doom_sim::dehacked`): DeHackEd 3.0 `Thing` (Bits as numbers or Boom mnemonics), `Frame`, `Pointer`, `Sound` (priority), `Ammo`, `Weapon`, `Cheat`, `Misc`, `Text`; BEX `[CODEPTR]`, `[STRINGS]`, `[PARS]`; ZDoom's `[SPRITES]`, `[SOUNDS]`, `[MUSIC]`.
+    - Every `DEHACKED` lump applies in load order, after DECORATE (as in GZDoom). The IWAD's comes first; Freedoom ships one. Loose `.deh`/`.bex` files given as PWADs are mounted as `DEHACKED` lumps.
+    - Strings work like Chocolate's `DEH_String`: one replacement table keyed by the original text. HUD messages, pickups, locked-door messages, menu prompts, map titles, finale texts, flats and cast names, and music names all go through it.
+    - Par times honour `[PARS]` and cheat sequences honour `Cheat` blocks. The Misc values that were defined but unused are now wired: `Monsters Infight`, god mode health, IDFA/IDKFA armor.
+  - **Node builder:** maps without usable nodes get a BSP (`doom_content::nodebuild`): UDMF maps without `ZNODES`, and vanilla maps with missing or unsupported nodes. Partitions run along whole linedefs, because `R_PointOnSide` truncates node directions to whole units.
   - **Verified:** MyHouse.wad (UDMF, XGL3 nodes, PNG textures, DECORATE) loads and renders on Doom II. The same content repacked as a PK3 renders identically (`tests/mods.rs`).
 - **Playsim:** complete vanilla single-player gameplay. The 4 IWAD demos and 72 synthetic demos stay in sync with Chocolate Doom.
 - **Classic renderer:** the vanilla column/span renderer. It matches Chocolate Doom frame for frame on the IWAD demos at the default view size.
@@ -31,7 +42,7 @@ Updated 2026-10-07 (mods round).
   - At pitch 0 it lines up with the classic renderer.
   - Sky follows vanilla's rules (sky ceilings are open to the sky; the both-sky upper-wall rule; missing upper/lower textures show the neighbouring flat as in vanilla). Above and below the sky texture it fades into a solid colour.
   - ~2–4 ms per frame at 320×200 on the IWAD maps (release build, one core).
-- **Sound:** sound effects with vanilla `s_sound.c` logic (8 channels, priorities, distance attenuation and stereo separation); OPL2 music from MUS + GENMIDI, emulating the DMX driver.
+- **Sound:** sound effects with vanilla `s_sound.c` logic (8 channels, priorities, distance attenuation and stereo separation); OPL2 music from MUS or MIDI + GENMIDI, emulating the DMX driver; digital music streams.
 - **Presentation:** title pages and the demo loop, menus (new game, episode, skill, options, sound volume, read-this, quit/end-game prompts), status bar and face, full-screen HUD, view border, HUD messages, automap (with `iddt`), intermission tally and episode maps, finales (text, art, bunny scroll, cast call), pause, palette flashes. All drawn in screen space from WAD graphics.
 - **Bevy host:** window, keyboard/mouse at 35 Hz, auto mouse capture, mouse/keyboard freelook, audio output, 4:3 presentation, fullscreen, screenshots.
   - The previous host version compiled against real Bevy 0.16.1 on Windows. This version (audio, freelook, key routing) was type-checked against a stub here, because crates.io is unreachable from this container; it still needs a real build.
@@ -52,6 +63,17 @@ Updated 2026-10-07 (mods round).
   - Regression test: `crates/doom_audio/tests/opl_reference.rs` with fixtures from `tools/refopl/gen_fixtures.sh`.
   - What the OPL path cannot do: sound like General MIDI / SoundFont playback (Roland SC-55, GZDoom's FluidSynth default). That needs a separate synthesizer; see the roadmap.
 
+## Verified (2026-10-18)
+
+- **MIDI.** `crates/doom_audio/tests/midi_playback.rs` converts every MUS song in the shareware IWAD to MIDI. Each one drives the OPL with exactly the MUS player's register writes, in the same order. Timing stays within a few milliseconds: per-event microsecond truncation, plus a 5 ms guard our MUS player adds at each loop. Freedoom's 35 MIDI songs parse and render.
+- **DEHACKED.** `crates/doom_game/tests/dehacked.rs` loads a loose `.deh` on the shareware IWAD and checks things, frames, ammo, misc, text, pars, BEX strings and a renamed cheat. It also checks Freedoom's own DEHACKED lump (frame edits, `[PARS]`, `[STRINGS]` for pickups and level names) with no warnings.
+- **Node builder.** `rebuilt_nodes_agree_with_shipped_nodes` probes both sides of every line.
+  - Rebuilt nodes place the probes as well as the shipped nodes on every Freedoom 1/2 map (one map 99.97% vs 100%), and better than id's on all shareware maps (100%).
+  - Build time is 2–90 ms per map (release).
+  - `nodeless_udmf_map_loads` converts shareware E1M1 to a TEXTMAP without nodes and loads it.
+  - `demo_sync -- --ignored` replays the synthetic demos on rebuilt nodes, when those fixtures are present.
+- **Not re-run here:** the IWAD and synthetic demo-sync fixtures, which need the IWAD they were recorded with. With no patch loaded, the DEHACKED-backed tables hold exactly the old constants.
+
 ## Corpses at map start
 
 - The corpses at map start are **authored map things**, not engine-created.
@@ -68,13 +90,15 @@ Updated 2026-10-07 (mods round).
   - There is no occlusion culling beyond the view cone, so very large maps may be slower.
 - **Audio:**
   - OPL rhythm mode and 4-op voices are not emulated (DMX doesn't use them).
-  - There is no PC speaker, MIDI-file, General MIDI/SoundFont, or OGG/MP3/MOD music.
+  - There is no PC speaker, General MIDI/SoundFont, or tracker (MOD/S3M/IT/XM) music, and no HMI/XMI/MIDS MIDI variants.
+  - Digital music is decoded whole when a song starts (a short hitch and a few tens of MB for long tracks), not streamed from disk.
   - Sound lumps are resampled linearly.
   - The mixer runs at 44.1 kHz like Chocolate Doom. If the output device runs at another rate, Bevy's audio backend (rodio) resamples with plain linear interpolation.
-- **Not implemented:** savegames (the save/load menus say so), multiplayer, DEHACKED.
+- **Not implemented:** savegames (the save/load menus say so), multiplayer.
 - **Mods:**
-  - Not supported yet: ZScript, ACS (scripted events, doors and lights do nothing), Hexen-style specials without a Doom equivalent (teleports by TID, Line_Horizon, mirrors, Transfer_Heights, polyobjects), 3D floors, slopes, portals, translucency (`alpha`), dynamic lights, OGG/MP3/WAV/FLAC sounds and music, MIDI music.
-  - A UDMF map without nodes cannot load: there is no node builder yet.
+  - Not supported yet: ZScript, ACS (scripted events, doors and lights do nothing), Hexen-style specials without a Doom equivalent (teleports by TID, Line_Horizon, mirrors, Transfer_Heights, polyobjects), 3D floors, slopes, portals, translucency (`alpha`), dynamic lights.
+  - **DEHACKED:** DEHEXTRA/MBF21 extended tables and fields, MBF code pointers that vanilla doesn't have (`A_Spawn`, `A_RandomJump`...), MBF thing flags and `INCLUDE` are reported and skipped. Texts that are only shown formatted (`Marked Spot %d`) are not replaced. GZDoom's LANGUAGE-only BEX names (`TAG_*`, `SKILL_*`...) are accepted and ignored.
+  - The node builder makes vanilla-style (non-GL) nodes. Its BSP differs from id's, so line-of-sight edge cases through the BSP may differ from vanilla on rebuilt maps. Maps that ship nodes always use them.
   - Long texture names (more than 8 characters) are truncated.
   - Texture scale is ignored by the classic renderer.
   - All PNG sprites and textures are decoded at startup, so very large PK3s take a few seconds to load.
@@ -85,10 +109,9 @@ Updated 2026-10-07 (mods round).
 Agreed order: baseline authenticity (lighting, music: done above), then the formats needed to load `MyHouse.pk3`, then settings, then advanced rendering.
 
 1. **Mod formats, part 2 (next):**
-   - an ACS interpreter (BEHAVIOR) with the Hexen special set, which most UDMF maps need for interaction;
-   - OGG/WAV sound and music, plus MIDI on the OPL player;
-   - a node builder for UDMF maps shipped without nodes;
-   - DEHACKED;
+   - done 2026-10-18: OGG/WAV/FLAC/MP3 sound and music, MIDI on the OPL player, the node builder, DEHACKED/BEX;
+   - an ACS interpreter (BEHAVIOR) with the Hexen special set, which most UDMF maps need for interaction (started in the code, see the note at the top);
+   - MBF/MBF21 DEHACKED extensions (code pointers with `misc1`/`misc2` arguments, extended tables);
    - ZScript is a large separate project (a language VM).
 2. **Settings / CVars:** a typed CVar registry with config file persistence. First users: freelook on/off (pitch locked to the horizon), mouse look invert, gamma, renderer choice, scaling mode, music device.
 3. **Optional General MIDI music:** a SoundFont (SF2) synthesizer as an alternative to OPL, chosen by a CVar.
@@ -104,4 +127,6 @@ Agreed order: baseline authenticity (lighting, music: done above), then the form
 - **Music reference:** `tools/refopl` (`build.sh <chocolate checkout>`, then `compare_logs.py` against `cargo run -p doom_audio --release --example music_trace`).
 - **Mod probe:** `cargo run -p doom_game --release --example mod_probe -- <out> <iwad> [mods...] [--map MAP01] [--walk TICS]` reports content, warnings and screenshots.
 - **Lighting comparison:** `cargo run -p doom_game --release --example light_compare -- <iwad> [out dir]` (`LOW_DETAIL=1`, `BLOCKS=n`).
+- **Music formats:** `cargo test -p doom_audio --release --test midi_playback` (needs `WADS/doom1.wad`; `WADS/freedoom2.wad` for the Freedoom songs).
+- **DEHACKED:** `cargo test -p doom_game --release --test dehacked`; parser unit tests in `doom_sim::dehacked`.
 - **Open renderer item, parked:** a 1-pixel low-detail difference in two frames of `full_low` DEMO2/DEMO3.

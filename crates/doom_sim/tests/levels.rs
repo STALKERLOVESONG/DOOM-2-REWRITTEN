@@ -115,6 +115,32 @@ fn udmf_map_with_gl_nodes_loads() {
     assert!(unknown.is_empty(), "missing resources: {unknown:?}");
 }
 
+/// Ground truth for a BSP: just in front of each line side is that side's
+/// sector. Returns the share of side probes the BSP gets right (sectors
+/// thinner than the probe distance may not be; allow a few).
+fn side_probe_rate(l: &Level) -> f64 {
+        let (mut ok, mut total) = (0, 0);
+        for line in &l.lines {
+            let (a, b) = (l.vertex(line.v1), l.vertex(line.v2));
+            let (dx, dy) = ((b.x.0 - a.x.0) as f64, (b.y.0 - a.y.0) as f64);
+            let len = dx.hypot(dy);
+            if len < 4.0 * 65536.0 {
+                continue;
+            }
+            let (mx, my) = ((a.x.0 as f64 + b.x.0 as f64) / 2.0, (a.y.0 as f64 + b.y.0 as f64) / 2.0);
+            for (k, side) in line.sidenum.iter().enumerate() {
+                let Some(side) = side else { continue };
+                // Right of v1->v2 for the front, left for the back.
+                let sgn = if k == 0 { 1.0 } else { -1.0 };
+                let (px, py) = (mx + sgn * dy / len * 32768.0, my - sgn * dx / len * 32768.0);
+                let got = l.subsectors[point_in_subsector(l, Fixed(px as i32), Fixed(py as i32)).idx()].sector;
+                total += 1;
+                ok += (got == l.side(*side).sector) as i32;
+            }
+        }
+        ok as f64 / total as f64
+}
+
 #[test]
 fn rebuilt_nodes_agree_with_shipped_nodes() {
     let Some(iwad) = wad_path("doom1.wad", "DOOM_IWAD") else { return };
@@ -129,33 +155,81 @@ fn rebuilt_nodes_agree_with_shipped_nodes() {
         doom_content::nodebuild::build_nodes(&mut rebuilt_raw);
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         let rebuilt = Level::from_raw(&rebuilt_raw, &res).unwrap();
-        // Ground truth: just in front of each line side is that side's
-        // sector. Both BSPs must agree with it (sectors thinner than the
-        // probe distance may not; allow a few).
-        let correct = |l: &Level| {
-            let (mut ok, mut total) = (0, 0);
-            for line in &l.lines {
-                let (a, b) = (l.vertex(line.v1), l.vertex(line.v2));
-                let (dx, dy) = ((b.x.0 - a.x.0) as f64, (b.y.0 - a.y.0) as f64);
-                let len = dx.hypot(dy);
-                if len < 4.0 * 65536.0 {
-                    continue;
-                }
-                let (mx, my) = ((a.x.0 as f64 + b.x.0 as f64) / 2.0, (a.y.0 as f64 + b.y.0 as f64) / 2.0);
-                for (k, side) in line.sidenum.iter().enumerate() {
-                    let Some(side) = side else { continue };
-                    // Right of v1->v2 for the front, left for the back.
-                    let sgn = if k == 0 { 1.0 } else { -1.0 };
-                    let (px, py) = (mx + sgn * dy / len * 32768.0, my - sgn * dx / len * 32768.0);
-                    let got = l.subsectors[point_in_subsector(l, Fixed(px as i32), Fixed(py as i32)).idx()].sector;
-                    total += 1;
-                    ok += (got == l.side(*side).sector) as i32;
-                }
-            }
-            ok as f64 / total as f64
-        };
-        let (rate_shipped, rate) = (correct(&shipped), correct(&rebuilt));
+        let (rate_shipped, rate) = (side_probe_rate(&shipped), side_probe_rate(&rebuilt));
         eprintln!("{name}: {} nodes rebuilt in {ms:.1} ms; sides found: shipped {:.2}%, rebuilt {:.2}%", rebuilt.nodes.len(), rate_shipped * 100.0, rate * 100.0);
         assert!(rate >= rate_shipped - 0.001, "{name}: rebuilt nodes place {:.2}% of probes right", rate * 100.0);
     }
+}
+
+/// A UDMF map shipped without nodes (no ZNODES), as GZDoom mappers do:
+/// shareware E1M1 converted to a Doom-namespace TEXTMAP. It must load,
+/// get nodes from the node builder, and place every side probe right.
+#[test]
+fn nodeless_udmf_map_loads() {
+    let Some(iwad) = wad_path("doom1.wad", "DOOM_IWAD") else { return };
+    let stack = ResourceStack::load(&iwad, &[]).unwrap();
+    let raw = doom_content::map::RawMap::load(&stack, "E1M1").unwrap();
+
+    use doom_content::map::{ml, mtf, NO_SIDEDEF};
+    use std::fmt::Write;
+    let f = |v: i32| v as f64 / 65536.0;
+    let mut tm = String::from("namespace = \"doom\";\n");
+    for v in &raw.vertexes {
+        writeln!(tm, "vertex {{ x = {}; y = {}; }}", f(v.x), f(v.y)).unwrap();
+    }
+    for l in &raw.linedefs {
+        let side = |s: u32| if s == NO_SIDEDEF { -1 } else { s as i64 };
+        write!(tm, "linedef {{ v1 = {}; v2 = {}; sidefront = {}; sideback = {}; special = {}; id = {};", l.v1, l.v2, side(l.sidenum[0]), side(l.sidenum[1]), l.special, l.tag).unwrap();
+        for (k, bit) in [("blocking", ml::BLOCKING), ("twosided", ml::TWOSIDED), ("dontpegtop", ml::DONTPEGTOP), ("dontpegbottom", ml::DONTPEGBOTTOM), ("secret", ml::SECRET)] {
+            if l.flags & bit != 0 {
+                write!(tm, " {k} = true;").unwrap();
+            }
+        }
+        tm.push_str(" }\n");
+    }
+    for s in &raw.sidedefs {
+        writeln!(tm, "sidedef {{ sector = {}; texturetop = \"{}\"; texturebottom = \"{}\"; texturemiddle = \"{}\"; offsetx = {}; offsety = {}; }}", s.sector, s.top, s.bottom, s.mid, s.texture_offset, s.row_offset).unwrap();
+    }
+    for s in &raw.sectors {
+        writeln!(tm, "sector {{ heightfloor = {}; heightceiling = {}; texturefloor = \"{}\"; textureceiling = \"{}\"; lightlevel = {}; special = {}; id = {}; }}", f(s.floor_height), f(s.ceiling_height), s.floor_pic, s.ceiling_pic, s.light_level, s.special, s.tag).unwrap();
+    }
+    for t in &raw.things {
+        let o = t.options;
+        writeln!(tm, "thing {{ x = {}; y = {}; angle = {}; type = {}; skill1 = {}; skill2 = {}; skill3 = {}; skill4 = {}; skill5 = {}; ambush = {}; single = {}; }}",
+            f(t.x), f(t.y), t.angle, t.kind, o & mtf::EASY != 0, o & mtf::EASY != 0, o & mtf::NORMAL != 0, o & mtf::HARD != 0, o & mtf::HARD != 0, o & mtf::AMBUSH != 0, o & mtf::NOTSINGLE == 0).unwrap();
+    }
+
+    // A PWAD: E1M1 marker, TEXTMAP, ENDMAP.
+    let lumps: [(&str, &[u8]); 3] = [("E1M1", b""), ("TEXTMAP", tm.as_bytes()), ("ENDMAP", b"")];
+    let mut wad = b"PWAD".to_vec();
+    let dir_ofs = 12 + lumps.iter().map(|l| l.1.len()).sum::<usize>();
+    wad.extend_from_slice(&(lumps.len() as i32).to_le_bytes());
+    wad.extend_from_slice(&(dir_ofs as i32).to_le_bytes());
+    let mut pos = 12;
+    let mut dir = Vec::new();
+    for (name, data) in lumps {
+        wad.extend_from_slice(data);
+        dir.extend_from_slice(&(pos as i32).to_le_bytes());
+        dir.extend_from_slice(&(data.len() as i32).to_le_bytes());
+        let mut n = [0u8; 8];
+        n[..name.len()].copy_from_slice(name.as_bytes());
+        dir.extend_from_slice(&n);
+        pos += data.len();
+    }
+    wad.extend_from_slice(&dir);
+    let dir = std::env::temp_dir().join(format!("doom_udmf_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pwad = dir.join("udmf_e1m1.wad");
+    std::fs::write(&pwad, &wad).unwrap();
+    let stack = ResourceStack::load(&iwad, &[pwad]).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+    let textures = TextureSet::load(&stack).unwrap();
+
+    let level = Level::load(&stack, &textures, "E1M1").unwrap();
+    assert_eq!((level.lines.len(), level.sectors.len()), (raw.linedefs.len(), raw.sectors.len()));
+    assert!(level.nodes.len() > 100, "nodes were built: {}", level.nodes.len());
+    let rate = side_probe_rate(&level);
+    assert!(rate > 0.9999, "side probes {:.2}%", rate * 100.0);
+    let unexpected: Vec<_> = level.warnings.iter().filter(|w| !w.contains("TILE01")).collect();
+    assert!(unexpected.is_empty(), "{unexpected:?}");
 }

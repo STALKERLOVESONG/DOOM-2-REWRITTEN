@@ -1,0 +1,12 @@
+[package]
+name = "doom_script"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Script runtimes for Doom mods: the ACS virtual machine (BEHAVIOR lumps) and the ZScript front end"
+
+[dependencies]
+doom_core.workspace = true
+
+[dev-dependencies]
+doom_content.workspace = true

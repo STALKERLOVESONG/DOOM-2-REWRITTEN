@@ -1,0 +1,11 @@
+[package]
+name = "doom_render"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Doom software renderer (r_*.c): palette-indexed 320x200 framebuffer, bit-exact with vanilla"
+
+[dependencies]
+doom_core.workspace = true
+doom_content.workspace = true
+doom_sim.workspace = true

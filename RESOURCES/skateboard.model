@@ -1,0 +1,24 @@
+# Skate mode's skateboard. Read by doom_game::skate_model at startup.
+# Paths are relative to this file. The asset files themselves are never
+# changed: orientation, size and placement corrections all live here.
+
+mesh = "MODELS AND TEXTURES/Skateboard/Skateboard.obj"
+# Three deck designs ship with the asset (BaseColor_1, _2, _3).
+texture = "MODELS AND TEXTURES/Skateboard/Textures/BaseColor_maps/Skateboard_Scateboard_MAT_BaseColor_1.1001.png"
+
+# The OBJ is Blender's export: Y up, the board's length along X.
+forward = +x
+up = +y
+
+# Board length in map units ("asset" keeps the asset's size times scale).
+# Drawing rescales to skate_board_length; this is the stored size.
+length = 36
+
+# Put the lowest point (the wheels) on the ground, then nudge
+# (forward right up, map units).
+ground = auto
+offset = 0 0 0
+
+# Largest texture side kept (power of two), and OBJ's upward v axis.
+texture_size = 256
+flip_v = true

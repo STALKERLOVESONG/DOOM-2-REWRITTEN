@@ -1,0 +1,11 @@
+[package]
+name = "doom_sim"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Deterministic Doom simulation: level structures, BSP/blockmap queries, thinkers, playsim"
+
+[dependencies]
+doom_core.workspace = true
+doom_content.workspace = true
+doom_script.workspace = true

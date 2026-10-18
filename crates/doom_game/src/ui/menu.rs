@@ -17,6 +17,7 @@ use std::sync::Arc;
 use doom_content::game::{GameInfo, GameMission, GameMode, GameVersion};
 use doom_content::picture::Picture;
 use doom_content::ResourceStack;
+use doom_sim::dehacked::StringTable;
 use doom_sim::info::*;
 use doom_sim::Skill;
 
@@ -138,6 +139,8 @@ enum MessageKind {
 }
 
 pub struct MenuSystem {
+    /// DEHACKED string replacements for prompts.
+    strings: StringTable,
     menus: Vec<(MenuId, Menu)>,
     current: MenuId,
     item_on: usize,
@@ -177,6 +180,16 @@ struct MenuPatches {
 }
 
 impl MenuSystem {
+    /// Use DEHACKED's string replacements for prompts.
+    pub fn set_strings(&mut self, strings: StringTable) {
+        self.strings = strings;
+    }
+
+    /// A prompt after DEHACKED replacements.
+    fn tr<'a>(&'a self, s: &'a str) -> &'a str {
+        self.strings.get(s)
+    }
+
     pub fn new(stack: &ResourceStack, p: &mut Patches, game: GameInfo) -> Self {
         let item = |status: i8, patch: Option<Arc<Picture>>, act: Option<ItemAct>, alpha: u8| Item { status, patch, label: "", act, alpha };
         let mut pg = |name: &str| p.get(stack, name);
@@ -304,6 +317,7 @@ impl MenuSystem {
             pause: p.need(stack, "M_PAUSE"),
         };
         MenuSystem {
+            strings: StringTable::default(),
             menus,
             current: MenuId::Main,
             item_on: 0,
@@ -460,7 +474,7 @@ impl MenuSystem {
                     return true;
                 }
                 Key::F(2) | Key::F(3) | Key::F(6) | Key::F(9) => {
-                    self.start_message("Saving and loading are not implemented yet.\n\n".to_string() + strings::PRESSKEY, MessageKind::Info);
+                    self.start_message("Saving and loading are not implemented yet.\n\n".to_string() + self.tr(strings::PRESSKEY), MessageKind::Info);
                     out.push(MenuAction::StartSound(SFX_SWTCHN));
                     return true;
                 }
@@ -554,8 +568,8 @@ impl MenuSystem {
 
     fn quit(&mut self, gametic: i32) {
         let table = if self.game.mission == GameMission::Doom { &strings::DOOM1_ENDMSG } else { &strings::DOOM2_ENDMSG };
-        let msg = table[(gametic.rem_euclid(8)) as usize];
-        self.start_message(format!("{msg}\n\n{}", strings::DOSY), MessageKind::Quit);
+        let msg = self.tr(table[(gametic.rem_euclid(8)) as usize]);
+        self.start_message(format!("{msg}\n\n{}", self.tr(strings::DOSY)), MessageKind::Quit);
     }
 
     fn end_game(&mut self, in_game: bool, _out: &mut Vec<MenuAction>) {
@@ -563,7 +577,7 @@ impl MenuSystem {
             // `M_EndGame` does nothing outside a game.
             return;
         }
-        self.start_message(strings::ENDGAME.to_string(), MessageKind::EndGame);
+        self.start_message(self.tr(strings::ENDGAME).to_string(), MessageKind::EndGame);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -589,13 +603,13 @@ impl MenuSystem {
             ItemAct::LoadGame => self.setup_next(MenuId::Load),
             ItemAct::SaveGame => {
                 if !in_game {
-                    self.start_message(strings::SAVEDEAD.to_string(), MessageKind::Info);
+                    self.start_message(self.tr(strings::SAVEDEAD).to_string(), MessageKind::Info);
                 } else {
                     self.setup_next(MenuId::Save);
                 }
             }
             ItemAct::Slot(_) => {
-                self.start_message("Saving and loading are not implemented yet.\n\n".to_string() + strings::PRESSKEY, MessageKind::Info);
+                self.start_message("Saving and loading are not implemented yet.\n\n".to_string() + self.tr(strings::PRESSKEY), MessageKind::Info);
             }
             ItemAct::ReadThis => self.setup_next(MenuId::Read1),
             ItemAct::ReadThis2 => self.setup_next(MenuId::Read2),
@@ -603,7 +617,7 @@ impl MenuSystem {
             ItemAct::Quit => self.quit(gametic),
             ItemAct::Episode(e) => {
                 if self.game.mode == GameMode::Shareware && e != 0 {
-                    self.start_message(strings::SWSTRING.to_string(), MessageKind::Info);
+                    self.start_message(self.tr(strings::SWSTRING).to_string(), MessageKind::Info);
                     self.setup_next(MenuId::Read1);
                     return;
                 }
@@ -612,7 +626,7 @@ impl MenuSystem {
             }
             ItemAct::Skill(skill) => {
                 if skill == Skill::Nightmare {
-                    self.start_message(strings::NIGHTMARE.to_string(), MessageKind::Nightmare);
+                    self.start_message(self.tr(strings::NIGHTMARE).to_string(), MessageKind::Nightmare);
                     return;
                 }
                 out.push(MenuAction::NewGame { episode: self.epi + 1, skill });
@@ -642,7 +656,7 @@ impl MenuSystem {
                 if self.engine_vars.is_empty() {
                     self.start_message(format!("No engine options.
 
-{}", strings::PRESSKEY), MessageKind::Info);
+{}", self.tr(strings::PRESSKEY)), MessageKind::Info);
                 } else {
                     self.setup_next(MenuId::Engine);
                 }
@@ -766,7 +780,7 @@ impl MenuSystem {
                         draw_patch(screen, m.x + j * 8, y + 7, &p.lsc);
                     }
                     draw_patch(screen, m.x + 24 * 8, y + 7, &p.lsr);
-                    font.draw(screen, m.x, y, strings::EMPTYSTRING);
+                    font.draw(screen, m.x, y, self.tr(strings::EMPTYSTRING));
                 }
             }
         }

@@ -100,7 +100,13 @@ pub struct WbStart {
 }
 
 impl WbStart {
-    pub fn par_time(mode: GameMode, episode: i32, map: i32) -> i32 {
+    /// `deh_pars`: BEX `[PARS]` (seconds by episode and map, episode 0 for
+    /// Doom II), which take precedence over the built-in table.
+    pub fn par_time(mode: GameMode, episode: i32, map: i32, deh_pars: &std::collections::HashMap<(i32, i32), i32>) -> i32 {
+        let key = if mode == GameMode::Commercial { (0, map) } else { (episode, map) };
+        if let Some(&secs) = deh_pars.get(&key) {
+            return secs * TICRATE;
+        }
         if mode == GameMode::Commercial {
             // MAP33 would read past the table in vanilla; use 0.
             CPARS.get((map - 1) as usize).map_or(0, |p| p * TICRATE)

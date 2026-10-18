@@ -124,6 +124,8 @@ pub struct SoundSystem {
     music_volume: i32,
     music_scale: f32,
     current_music: Option<String>,
+    /// DEHACKED song renames, by MUSIC_NAMES entry.
+    music_renames: doom_sim::dehacked::StringTable,
     out: Vec<AudioCommand>,
     tic: u64,
     ambients: Vec<Ambient>,
@@ -147,6 +149,7 @@ impl SoundSystem {
             music_volume: 8,
             music_scale: 1.0,
             current_music: None,
+            music_renames: Default::default(),
             out: Vec::new(),
             tic: 0,
             ambients: Vec::new(),
@@ -640,7 +643,14 @@ impl SoundSystem {
     /// `S_ChangeMusic` by music number.
     pub fn change_music(&mut self, stack: &ResourceStack, music: MusicNum, looping: bool) {
         let Some(name) = MUSIC_NAMES.get(music.0 as usize) else { return };
-        self.change_music_lump(stack, &format!("D_{}", name.to_ascii_uppercase()), looping);
+        // DEHACKED `Text` and BEX `[MUSIC]` rename songs by their short name.
+        let name = self.music_renames.get(name).to_ascii_uppercase();
+        self.change_music_lump(stack, &format!("D_{name}"), looping);
+    }
+
+    /// DEHACKED music renames (`e1m1` -> `mysong`).
+    pub fn set_music_renames(&mut self, renames: doom_sim::dehacked::StringTable) {
+        self.music_renames = renames;
     }
 
     pub fn change_music_lump(&mut self, stack: &ResourceStack, lump: &str, looping: bool) {

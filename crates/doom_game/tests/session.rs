@@ -139,8 +139,9 @@ fn god_mode_survives_damage_and_warp_resets() {
     idle(&mut s, 2);
     assert!(!s.hud().dead);
     s.give_all();
-    s.warp("E2M1").unwrap();
-    assert_eq!(s.map(), MapRef::new(2, 1));
+    // E1M3: present in the shareware IWAD too.
+    s.warp("E1M3").unwrap();
+    assert_eq!(s.map(), MapRef::new(1, 3));
     assert!(!s.hud().god, "warp starts a new game");
     assert!(!s.hud().weapons_owned[Weapon::Shotgun as usize]);
     assert!(s.warp("E9M9").is_err());

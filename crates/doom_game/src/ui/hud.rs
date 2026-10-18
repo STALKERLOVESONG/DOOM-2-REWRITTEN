@@ -46,7 +46,8 @@ impl Hud {
 }
 
 /// The automap title (`HU_TITLE` etc.): "E1M1: Hangar", "level 1: entryway".
-pub fn map_title(game: &GameInfo, episode: i32, map: i32) -> String {
+/// `strings`: DEHACKED replacements (BEX `HUSTR_*`).
+pub fn map_title(game: &GameInfo, strings: &doom_sim::dehacked::StringTable, episode: i32, map: i32) -> String {
     let title = match (game.mode, game.mission) {
         (GameMode::Commercial, GameMission::Plutonia) => strings::MAP_TITLES_PLUTONIA.get((map - 1) as usize),
         (GameMode::Commercial, GameMission::Tnt) => strings::MAP_TITLES_TNT.get((map - 1) as usize),
@@ -60,7 +61,7 @@ pub fn map_title(game: &GameInfo, episode: i32, map: i32) -> String {
         }
     };
     match title {
-        Some(t) => t.to_string(),
+        Some(t) => strings.get(t).to_string(),
         None if game.mode == GameMode::Commercial => format!("MAP{map:02}"),
         None => format!("E{episode}M{map}"),
     }

@@ -27,17 +27,46 @@ const SEQUENCES: [(&str, fn(&str) -> Cheat); 7] = [
 ];
 
 /// Feed typed characters; returns a cheat when a sequence completes.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CheatMatcher {
+    /// The sequences, `?` standing for any character.
+    sequences: Vec<(String, fn(&str) -> Cheat)>,
     /// Progress into each sequence, and captured `?` characters.
-    progress: [(usize, String); SEQUENCES.len()],
+    progress: Vec<(usize, String)>,
+}
+
+impl Default for CheatMatcher {
+    fn default() -> Self {
+        Self::with_overrides(&Default::default())
+    }
 }
 
 impl CheatMatcher {
+    /// The vanilla sequences, with DEHACKED `Cheat` replacements (by
+    /// DEHACKED name, see [`doom_sim::dehacked::CHEAT_NAMES`]). A replaced
+    /// warp sequence keeps its two digits.
+    pub fn with_overrides(overrides: &std::collections::HashMap<String, String>) -> Self {
+        let sequences: Vec<(String, fn(&str) -> Cheat)> = SEQUENCES
+            .iter()
+            .map(|&(seq, make)| {
+                let base = seq.trim_end_matches('?');
+                let args = &seq[base.len()..];
+                let replaced = doom_sim::dehacked::CHEAT_NAMES
+                    .iter()
+                    .find(|(_, vanilla)| *vanilla == base)
+                    .and_then(|(name, _)| overrides.get(*name))
+                    .filter(|s| !s.is_empty());
+                (replaced.map_or(seq.to_string(), |s| format!("{s}{args}")), make)
+            })
+            .collect();
+        let progress = vec![(0, String::new()); sequences.len()];
+        CheatMatcher { sequences, progress }
+    }
+
     pub fn feed(&mut self, c: char) -> Option<Cheat> {
         let c = c.to_ascii_lowercase();
         let mut hit = None;
-        for (i, (seq, make)) in SEQUENCES.iter().enumerate() {
+        for (i, (seq, make)) in self.sequences.iter().enumerate() {
             let (pos, args) = &mut self.progress[i];
             let want = seq.as_bytes()[*pos] as char;
             if want == '?' {
@@ -72,7 +101,11 @@ impl Session {
                 let keys = self.world.console_player().cards;
                 self.give_all();
                 let cp = self.world.params.consoleplayer;
-                self.world.players[cp].cards = keys;
+                let p = &mut self.world.players[cp];
+                p.cards = keys;
+                // `idfa` has its own DEHACKED armor values.
+                p.armorpoints = self.info.misc.idfa_armor;
+                p.armortype = self.info.misc.idfa_armor_class;
                 self.show_message("Ammo (no keys) Added");
             }
             Cheat::NoClip => self.toggle_noclip(),

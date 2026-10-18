@@ -13,7 +13,7 @@ use doom_core::DoomRandom;
 use crate::geometry::Opening;
 use crate::info::Info;
 use crate::level::Level;
-use crate::player::{Player, PlayerState, Weapon, MAXAMMO, MAXPLAYERS, NUMAMMO};
+use crate::player::{Player, PlayerState, Weapon, MAXPLAYERS, NUMAMMO};
 use crate::thinker::Thinkers;
 use crate::ticcmd::{bt, TicCmd};
 use crate::world::{GameParams, MapGlobals, World, ITEMQUESIZE};
@@ -44,7 +44,7 @@ pub fn player_reborn(w: &mut World, player: usize) {
     p.weaponowned[Weapon::Fist as usize] = true;
     p.weaponowned[Weapon::Pistol as usize] = true;
     p.ammo[0] = w.deh.initial_bullets;
-    p.maxammo[..NUMAMMO].copy_from_slice(&MAXAMMO);
+    p.maxammo[..NUMAMMO].copy_from_slice(&w.info.maxammo);
     w.players[player] = p;
 }
 
@@ -124,6 +124,8 @@ impl World {
         let spec = crate::spec::SpecTables::build(&content, params.mode);
         let texture_translation = (0..content.texture_names.len() as u16).collect();
         let flat_translation = (0..content.flat_names.len() as u16).collect();
+        // DEHACKED results the playsim reads from the world.
+        let (weaponinfo, deh) = (info.weaponinfo, info.misc);
         let mut w = World {
             info,
             content,
@@ -139,8 +141,8 @@ impl World {
             level_time_count: 0,
             gameexit: None,
             sky_texture,
-            weaponinfo: crate::items::DEFAULT_WEAPONINFO,
-            deh: crate::items::DehMisc::default(),
+            weaponinfo,
+            deh,
             gametic: 0,
             bulletslope: doom_core::Fixed(0),
             corpsehit: None,

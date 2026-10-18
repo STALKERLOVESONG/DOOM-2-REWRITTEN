@@ -7,6 +7,7 @@ use doom_content::game::{GameInfo, GameMission, GameMode, GameVersion};
 use doom_content::picture::Picture;
 use doom_content::ResourceStack;
 use doom_render::RenderData;
+use doom_sim::dehacked::StringTable;
 use doom_sim::info::*;
 
 use super::gfx::{draw_patch, draw_patch_flipped, flat_pixels, tile_flat, Font, Patches, SCREENHEIGHT, SCREENWIDTH};
@@ -54,7 +55,8 @@ const CAST: [(&str, MobjType); 17] = [
 pub struct Finale {
     stage: Stage,
     count: i32,
-    text: &'static str,
+    /// The finale text, after DEHACKED replacements.
+    text: String,
     flat: Vec<u8>,
     commercial: bool,
     episode: i32,
@@ -77,7 +79,16 @@ pub struct Finale {
 
 impl Finale {
     /// `F_StartFinale`.
-    pub fn new(stack: &ResourceStack, p: &mut Patches, game: &GameInfo, episode: i32, map: i32, out: &mut Vec<FinaleEvent>) -> Self {
+    /// `strings`: DEHACKED replacements for the text and background flat.
+    pub fn new(
+        stack: &ResourceStack,
+        p: &mut Patches,
+        game: &GameInfo,
+        strings: &StringTable,
+        episode: i32,
+        map: i32,
+        out: &mut Vec<FinaleEvent>,
+    ) -> Self {
         let commercial = game.mode == GameMode::Commercial;
         out.push(FinaleEvent::ChangeMusic(if game.mission == GameMission::Doom { MUS_VICTOR } else { MUS_READ_M }));
         let (text, flat) = match game.mission {
@@ -113,8 +124,8 @@ impl Finale {
         Finale {
             stage: Stage::Text,
             count: 0,
-            text,
-            flat: flat_pixels(stack, flat).map(<[u8]>::to_vec).unwrap_or_default(),
+            text: strings.get(text).to_string(),
+            flat: flat_pixels(stack, strings.get(flat)).map(<[u8]>::to_vec).unwrap_or_default(),
             commercial,
             episode,
             map,
@@ -285,7 +296,7 @@ impl Finale {
                 if let Some(b) = &self.bossback {
                     draw_patch(screen, 0, 0, b);
                 }
-                let name = CAST[self.castnum].0;
+                let name = info.deh.strings.get(CAST[self.castnum].0);
                 let x = SCREENWIDTH as i32 / 2 - font.width(name) / 2;
                 font.draw(screen, x, 180, name);
                 let st = info.states[self.caststate.idx()];

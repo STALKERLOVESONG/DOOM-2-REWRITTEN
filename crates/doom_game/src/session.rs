@@ -326,10 +326,18 @@ impl Session {
         let mapinfo = doom_content::mapinfo::MapInfo::load(&stack);
         let mut info = Info::doom();
         let decorate_warnings = doom_sim::decorate::Decorate::apply_stack(&mut info, &stack);
+        // DEHACKED after DECORATE, as in GZDoom: patches edit Doom's things
+        // and frames by number. Sprite renames must precede RenderData.
+        let mut deh_warnings = doom_sim::dehacked::load(&mut info, &stack);
+        let unknown = info.deh.resolve_bex_strings(&crate::ui::strings::bex_original);
+        if !unknown.is_empty() {
+            deh_warnings.push(format!("DEHACKED: {} unknown BEX strings ignored: {}", unknown.len(), unknown.join(", ")));
+        }
         let render_data = RenderData::build(&stack, &textures, &info.sprnames).map_err(|e| format!("graphics: {e}"))?;
         let mut warnings = stack.warnings.clone();
         warnings.extend(textures.warnings.iter().cloned());
         warnings.extend(decorate_warnings);
+        warnings.extend(deh_warnings);
         warnings.extend(mapinfo.warnings.iter().cloned());
         warnings.extend(render_data.warnings.iter().cloned());
 
@@ -371,10 +379,13 @@ impl Session {
         let mut patches = Patches::default();
         let font = Font::load(&stack, &mut patches);
         let status_bar = StatusBar::new(&stack, &mut patches);
-        let menu = MenuSystem::new(&stack, &mut patches, game);
+        let cheats = CheatMatcher::with_overrides(&info.deh.cheats);
+        let mut menu = MenuSystem::new(&stack, &mut patches, game);
+        menu.set_strings(info.deh.strings.clone());
         let automap = Automap::new(&stack, &mut patches, SCREENWIDTH as i32, ST_Y);
         let border = ViewBorder::new(&stack, &mut patches, game.mode);
-        let sound = SoundSystem::new(&stack);
+        let mut sound = SoundSystem::new(&stack);
+        sound.set_music_renames(info.deh.strings.clone());
         let settings = Settings::default();
         let playpal = *render_data.palettes.get(0);
         let con_palette = con::Palette::from_playpal(&playpal);
@@ -447,7 +458,7 @@ impl Session {
             intermission: None,
             finale: None,
             sound,
-            cheats: CheatMatcher::default(),
+            cheats,
             events: Vec::new(),
             warnings,
             console: Console::default(),
@@ -626,8 +637,11 @@ impl Session {
     }
 
     /// Show a HUD message for the standard 4 seconds.
+    /// Show a HUD message, after DEHACKED's replacements for vanilla's
+    /// texts (`STSTR_DQDON`...).
     pub fn show_message(&mut self, m: impl Into<String>) {
-        self.hud_text.show(m);
+        let m = m.into();
+        self.hud_text.show(self.info.deh.strings.get(&m));
     }
 
     /// View size as in the vanilla menu: 3..=11 (10 = full width above the
@@ -971,7 +985,7 @@ impl Session {
             maxkills: self.world.totalkills,
             maxitems: self.world.totalitems,
             maxsecret: self.world.totalsecret,
-            partime: WbStart::par_time(mode, episode, map),
+            partime: WbStart::par_time(mode, episode, map, &self.info.deh.pars),
             kills: p.killcount,
             items: p.itemcount,
             secret: p.secretcount,
@@ -1024,7 +1038,7 @@ impl Session {
 
     fn start_finale(&mut self) {
         let mut out = Vec::new();
-        self.finale = Some(Finale::new(&self.stack, &mut self.patches, &self.game, self.current.episode, self.current.map, &mut out));
+        self.finale = Some(Finale::new(&self.stack, &mut self.patches, &self.game, &self.info.deh.strings, self.current.episode, self.current.map, &mut out));
         self.intermission = None;
         self.state = GameState::Finale;
         self.handle_finale_events(out);
@@ -1522,6 +1536,7 @@ impl Session {
         // HU_Ticker: pick up the player's message.
         let cp = self.world.params.consoleplayer;
         if let Some(m) = self.world.players[cp].message.take() {
+            let m = self.info.deh.strings.get(m);
             self.console.print(LineKind::Info, m);
             if self.settings.show_messages {
                 self.hud_text.show(m);
@@ -1566,13 +1581,15 @@ impl Session {
 
     /// `iddqd`.
     pub fn toggle_god(&mut self) {
+        // DEHACKED `God Mode Health` (100 in vanilla).
+        let health = self.info.misc.god_mode_health;
         let p = self.player_mut();
         p.cheats ^= cheat::GODMODE;
         let on = p.cheats & cheat::GODMODE != 0;
         if on {
-            p.health = 100;
+            p.health = health;
             if let Some(mo) = p.mo {
-                self.world.mo_mut(mo).health = 100;
+                self.world.mo_mut(mo).health = health;
             }
         }
         self.show_message(if on { "Degreelessness Mode On" } else { "Degreelessness Mode Off" });
@@ -1588,9 +1605,10 @@ impl Session {
 
     /// `idkfa`.
     pub fn give_all(&mut self) {
+        let (armor, class) = (self.info.misc.idkfa_armor, self.info.misc.idkfa_armor_class);
         let p = self.player_mut();
-        p.armorpoints = 200;
-        p.armortype = 2;
+        p.armorpoints = armor;
+        p.armortype = class;
         p.weaponowned = [true; NUMWEAPONS];
         p.ammo = p.maxammo;
         p.cards = [true; 6];
@@ -1752,7 +1770,7 @@ impl Session {
                     let lump = self.current.lump_name(self.game.mode);
                     let title = match self.mapinfo.get(&lump).and_then(|e| e.name.clone()) {
                         Some(name) => format!("{lump}: {name}"),
-                        None => map_title(&self.game, self.current.episode, self.current.map),
+                        None => map_title(&self.game, &self.info.deh.strings, self.current.episode, self.current.map),
                     };
                     self.font.draw(screen, 0, ST_Y - 1 - self.font.height(), &title);
                 }

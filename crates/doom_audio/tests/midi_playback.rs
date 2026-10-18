@@ -106,7 +106,8 @@ fn mus_to_midi(events: &[(MusEvent, u32)]) -> Vec<u8> {
     file
 }
 
-fn trace(bank: &Arc<Genmidi>, song: Song, seconds: u32) -> Vec<(u16, u8)> {
+/// Register writes as (output sample, register, value).
+fn trace(bank: &Arc<Genmidi>, song: Song, seconds: u32) -> Vec<(u64, u16, u8)> {
     let mut p = MusicPlayer::new(bank.clone(), 44100);
     p.set_volume(100);
     p.start_trace();
@@ -115,7 +116,7 @@ fn trace(bank: &Arc<Genmidi>, song: Song, seconds: u32) -> Vec<(u16, u8)> {
     for _ in 0..seconds {
         p.render(&mut buf);
     }
-    p.take_trace().iter().map(|w| (w.1, w.2)).collect()
+    p.take_trace()
 }
 
 #[test]
@@ -125,18 +126,23 @@ fn midi_matches_mus_player() {
     let mut songs = 0;
     for name in music_lumps(&stack) {
         let Ok(Song::Mus(score)) = Song::parse(stack.lump(&name).unwrap()) else { continue };
+        let pass_ticks: u32 = score.events.iter().map(|e| e.1).sum();
         let midi = Song::parse(&mus_to_midi(&score.events)).unwrap();
         assert!(matches!(midi, Song::Midi(_)));
         let a = trace(&bank, Song::Mus(score), 30);
         let b = trace(&bank, midi, 30);
         let n = a.len().min(b.len());
-        if let Some(i) = (0..n).find(|&i| a[i] != b[i]) {
+        if let Some(i) = (0..n).find(|&i| (a[i].1, a[i].2) != (b[i].1, b[i].2)) {
             panic!("{name}: write {i} of {n} differs: MUS {:x?}, MIDI {:x?}", a[i], b[i]);
         }
-        // Chocolate truncates every MIDI delay to whole microseconds
-        // (7142 µs for a 140 Hz tick), so MIDI runs up to ~0.01% fast and
-        // has made a few more writes by the end.
-        assert!(a.len().max(b.len()) - n <= n / 100 + 16, "{name}: {} vs {} writes", a.len(), b.len());
+        // Timing differs slightly: Chocolate truncates every MIDI delay to
+        // whole microseconds, and our MUS player waits 5 ms when it loops.
+        // Both stay within a few milliseconds over the test.
+        let worst = (0..n).map(|i| a[i].0.abs_diff(b[i].0)).max().unwrap_or(0);
+        let loops = 30 * 140 / pass_ticks.max(1) as u64;
+        let allowed = (loops + 1) * 221 + 441;
+        assert!(worst <= allowed, "{name}: writes drift apart by {worst} samples ({loops} loops)");
+        assert!(n * 10 >= a.len().max(b.len()) * 9, "{name}: {} vs {} writes", a.len(), b.len());
         songs += 1;
     }
     eprintln!("{songs} songs identical");

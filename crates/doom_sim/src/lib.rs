@@ -15,6 +15,7 @@ pub mod actors;
 pub mod acs_host;
 pub mod content;
 pub mod decorate;
+pub mod dehacked;
 pub mod demo;
 pub mod enemy;
 pub mod game;

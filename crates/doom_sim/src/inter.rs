@@ -27,43 +27,47 @@ pub const IRONTICS: i32 = 60 * TICRATE;
 pub const CLIPAMMO: [i32; NUMAMMO] = [10, 4, 20, 1];
 
 // Pickup messages (d_englsh.h).
-const GOTARMOR: &str = "Picked up the armor.";
-const GOTMEGA: &str = "Picked up the MegaArmor!";
-const GOTHTHBONUS: &str = "Picked up a health bonus.";
-const GOTARMBONUS: &str = "Picked up an armor bonus.";
-const GOTSTIM: &str = "Picked up a stimpack.";
-const GOTMEDINEED: &str = "Picked up a medikit that you REALLY need!";
-const GOTMEDIKIT: &str = "Picked up a medikit.";
-const GOTSUPER: &str = "Supercharge!";
-const GOTBLUECARD: &str = "Picked up a blue keycard.";
-const GOTYELWCARD: &str = "Picked up a yellow keycard.";
-const GOTREDCARD: &str = "Picked up a red keycard.";
-const GOTBLUESKUL: &str = "Picked up a blue skull key.";
-const GOTYELWSKUL: &str = "Picked up a yellow skull key.";
-const GOTREDSKULL: &str = "Picked up a red skull key.";
-const GOTINVUL: &str = "Invulnerability!";
-const GOTBERSERK: &str = "Berserk!";
-const GOTINVIS: &str = "Partial Invisibility";
-const GOTSUIT: &str = "Radiation Shielding Suit";
-const GOTMAP: &str = "Computer Area Map";
-const GOTVISOR: &str = "Light Amplification Visor";
-const GOTMSPHERE: &str = "MegaSphere!";
-const GOTCLIP: &str = "Picked up a clip.";
-const GOTCLIPBOX: &str = "Picked up a box of bullets.";
-const GOTROCKET: &str = "Picked up a rocket.";
-const GOTROCKBOX: &str = "Picked up a box of rockets.";
-const GOTCELL: &str = "Picked up an energy cell.";
-const GOTCELLBOX: &str = "Picked up an energy cell pack.";
-const GOTSHELLS: &str = "Picked up 4 shotgun shells.";
-const GOTSHELLBOX: &str = "Picked up a box of shotgun shells.";
-const GOTBACKPACK: &str = "Picked up a backpack full of ammo!";
-const GOTBFG9000: &str = "You got the BFG9000!  Oh, yes.";
-const GOTCHAINGUN: &str = "You got the chaingun!";
-const GOTCHAINSAW: &str = "A chainsaw!  Find some meat!";
-const GOTLAUNCHER: &str = "You got the rocket launcher!";
-const GOTPLASMA: &str = "You got the plasma gun!";
-const GOTSHOTGUN: &str = "You got the shotgun!";
-const GOTSHOTGUN2: &str = "You got the super shotgun!";
+/// Pickup messages (d_englsh.h), by their BEX mnemonics.
+pub mod msg {
+    pub const GOTARMOR: &str = "Picked up the armor.";
+    pub const GOTMEGA: &str = "Picked up the MegaArmor!";
+    pub const GOTHTHBONUS: &str = "Picked up a health bonus.";
+    pub const GOTARMBONUS: &str = "Picked up an armor bonus.";
+    pub const GOTSTIM: &str = "Picked up a stimpack.";
+    pub const GOTMEDINEED: &str = "Picked up a medikit that you REALLY need!";
+    pub const GOTMEDIKIT: &str = "Picked up a medikit.";
+    pub const GOTSUPER: &str = "Supercharge!";
+    pub const GOTBLUECARD: &str = "Picked up a blue keycard.";
+    pub const GOTYELWCARD: &str = "Picked up a yellow keycard.";
+    pub const GOTREDCARD: &str = "Picked up a red keycard.";
+    pub const GOTBLUESKUL: &str = "Picked up a blue skull key.";
+    pub const GOTYELWSKUL: &str = "Picked up a yellow skull key.";
+    pub const GOTREDSKULL: &str = "Picked up a red skull key.";
+    pub const GOTINVUL: &str = "Invulnerability!";
+    pub const GOTBERSERK: &str = "Berserk!";
+    pub const GOTINVIS: &str = "Partial Invisibility";
+    pub const GOTSUIT: &str = "Radiation Shielding Suit";
+    pub const GOTMAP: &str = "Computer Area Map";
+    pub const GOTVISOR: &str = "Light Amplification Visor";
+    pub const GOTMSPHERE: &str = "MegaSphere!";
+    pub const GOTCLIP: &str = "Picked up a clip.";
+    pub const GOTCLIPBOX: &str = "Picked up a box of bullets.";
+    pub const GOTROCKET: &str = "Picked up a rocket.";
+    pub const GOTROCKBOX: &str = "Picked up a box of rockets.";
+    pub const GOTCELL: &str = "Picked up an energy cell.";
+    pub const GOTCELLBOX: &str = "Picked up an energy cell pack.";
+    pub const GOTSHELLS: &str = "Picked up 4 shotgun shells.";
+    pub const GOTSHELLBOX: &str = "Picked up a box of shotgun shells.";
+    pub const GOTBACKPACK: &str = "Picked up a backpack full of ammo!";
+    pub const GOTBFG9000: &str = "You got the BFG9000!  Oh, yes.";
+    pub const GOTCHAINGUN: &str = "You got the chaingun!";
+    pub const GOTCHAINSAW: &str = "A chainsaw!  Find some meat!";
+    pub const GOTLAUNCHER: &str = "You got the rocket launcher!";
+    pub const GOTPLASMA: &str = "You got the plasma gun!";
+    pub const GOTSHOTGUN: &str = "You got the shotgun!";
+    pub const GOTSHOTGUN2: &str = "You got the super shotgun!";
+}
+use msg::*;
 
 /// `P_GiveAmmo`: `num` is the number of clip loads, not the individual count
 /// (0 = 1/2 clip). Returns false if the ammo can't be picked up at all.
@@ -79,7 +83,8 @@ pub fn give_ammo(w: &mut World, player: usize, am: usize, num: i32) -> bool {
     if p.ammo[am] == p.maxammo[am] {
         return false;
     }
-    let mut num = if num != 0 { num * CLIPAMMO[am] } else { CLIPAMMO[am] / 2 };
+    let clip = w.info.clipammo[am];
+    let mut num = if num != 0 { num * clip } else { clip / 2 };
     if skill == Skill::Baby || skill == Skill::Nightmare {
         // Give double ammo in trainer mode, you'll need in nightmare.
         num <<= 1;

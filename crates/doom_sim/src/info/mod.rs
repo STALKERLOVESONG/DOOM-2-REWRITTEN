@@ -3,8 +3,8 @@
 //!
 //! The default tables are generated from the reference source
 //! (`tools/gen_info.py`). The simulation uses an [`Info`] instance — a
-//! mutable copy — so content patches (DEHACKED now, DECORATE later) can
-//! modify or extend it without touching gameplay code.
+//! mutable copy — so content patches (DECORATE, then DEHACKED) can modify or
+//! extend it without touching gameplay code.
 
 mod generated;
 
@@ -164,6 +164,15 @@ pub struct Info {
     /// A mod replaced that vanilla weapon's class (`replaces Pistol`): the
     /// player's weapon of that kind runs the class's states and ammo.
     pub vanilla_weapon_replaced: [bool; 9],
+    /// `weaponinfo[]` (d_items.c), as DEHACKED left it.
+    pub weaponinfo: [crate::items::WeaponInfo; 9],
+    /// DEHACKED `Misc` values.
+    pub misc: crate::items::DehMisc,
+    /// `maxammo[]` and `clipammo[]` (DEHACKED `Ammo`).
+    pub maxammo: [i32; crate::player::NUMAMMO],
+    pub clipammo: [i32; crate::player::NUMAMMO],
+    /// What DEHACKED changed for the game layer: strings, par times, cheats.
+    pub deh: crate::dehacked::DehData,
 }
 
 /// ZDoom actor flags without a vanilla `MF_` bit ([`Info::class_zflags`]).
@@ -249,6 +258,11 @@ impl Info {
             class_methods: vec![Default::default(); NUMMOBJTYPES],
             vanilla_weapon_classes: [MobjType(0); 9],
             vanilla_weapon_replaced: [false; 9],
+            weaponinfo: crate::items::DEFAULT_WEAPONINFO,
+            misc: crate::items::DehMisc::default(),
+            maxammo: crate::player::MAXAMMO,
+            clipammo: crate::inter::CLIPAMMO,
+            deh: Default::default(),
         };
         // BulletPuff rises one unit per tic (vanilla P_SpawnPuff's momz).
         info.class_vspeed[MT_PUFF.idx()] = Some(1.0);
@@ -322,7 +336,7 @@ impl Info {
     /// Pistol get classes of their own; the others are their pickups.
     fn add_vanilla_weapon_classes(&mut self, base: MobjInfo, doomweapon: MobjType) {
         use crate::player::Weapon;
-        use crate::weapons::{AmmoRef, WeaponDef};
+        use crate::weapons::WeaponDef;
         // (weapon, class, existing pickup type, slot, ammo per shot, GZDoom selection order)
         let table: [(Weapon, &str, Option<MobjType>, i32, i32, i32); 9] = [
             (Weapon::Fist, "fist", None, 1, 0, 3700),
@@ -343,16 +357,27 @@ impl Info {
                 }
                 None => self.add_type(base, name, Some(doomweapon)),
             };
-            let wi = crate::items::DEFAULT_WEAPONINFO[wpn as usize];
-            let labels = &mut self.class_labels[t.idx()];
-            for (l, st) in [("select", wi.upstate), ("deselect", wi.downstate), ("ready", wi.readystate), ("fire", wi.atkstate), ("flash", wi.flashstate)] {
-                if st != S_NULL {
-                    labels.insert(l.to_string(), st);
-                }
-            }
-            let ammo = (wi.ammo < 4).then_some(AmmoRef::Vanilla(wi.ammo));
-            self.weapons.insert(t.0, WeaponDef { slot, ammo, ammo_use, ammo_give: 0, selection_order: order, ..Default::default() });
+            self.weapons.insert(t.0, WeaponDef { slot, ammo_use, ammo_give: 0, selection_order: order, ..Default::default() });
             self.vanilla_weapon_classes[wpn as usize] = t;
+            self.refresh_vanilla_weapon_class(wpn);
+        }
+    }
+
+    /// Copy `weaponinfo[wpn]`'s states and ammo type to that weapon's
+    /// class (after DEHACKED changed them).
+    pub fn refresh_vanilla_weapon_class(&mut self, wpn: crate::player::Weapon) {
+        let t = self.vanilla_weapon_classes[wpn as usize];
+        let wi = self.weaponinfo[wpn as usize];
+        let labels = &mut self.class_labels[t.idx()];
+        for (l, st) in [("select", wi.upstate), ("deselect", wi.downstate), ("ready", wi.readystate), ("fire", wi.atkstate), ("flash", wi.flashstate)] {
+            if st != S_NULL {
+                labels.insert(l.to_string(), st);
+            } else {
+                labels.remove(l);
+            }
+        }
+        if let Some(def) = self.weapons.get_mut(&t.0) {
+            def.ammo = (wi.ammo < 4).then_some(crate::weapons::AmmoRef::Vanilla(wi.ammo));
         }
     }
 

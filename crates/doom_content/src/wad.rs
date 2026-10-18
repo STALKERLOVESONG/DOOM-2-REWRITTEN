@@ -87,6 +87,13 @@ impl WadFile {
         Ok(Self { path, kind, data, entries, warnings })
     }
 
+    /// A PWAD holding one lump: a loose file mounted under a lump name
+    /// (a `.deh` patch as `DEHACKED`).
+    pub fn single_lump(path: PathBuf, name: &str, data: Vec<u8>) -> Self {
+        let entry = WadEntry { name: LumpName::new(name), offset: 0, size: data.len(), broken: false };
+        Self { path, kind: WadKind::Pwad, data, entries: vec![entry], warnings: Vec::new() }
+    }
+
     pub fn lump_data(&self, e: &WadEntry) -> &[u8] {
         &self.data[e.offset..e.offset + e.size]
     }

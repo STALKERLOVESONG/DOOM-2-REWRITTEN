@@ -252,8 +252,10 @@ fn pit_check_thing(w: &mut World, thing: MobjId) -> bool {
                 if Some(thing) == me.target {
                     return true;
                 }
-                // Explode, but do no damage. Let players missile other players.
-                if t.mobj_type != MT_PLAYER {
+                // Explode, but do no damage. Let players missile other
+                // players. DEHACKED's `Monsters Infight` lifts this
+                // (Chocolate's deh_species_infighting).
+                if t.mobj_type != MT_PLAYER && !w.deh.species_infighting {
                     return false;
                 }
             }

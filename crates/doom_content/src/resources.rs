@@ -198,7 +198,8 @@ impl ResourceStack {
         Ok(s)
     }
 
-    /// Add a container: a WAD, or a zip archive (PK3), told apart by content.
+    /// Add a container: a WAD, or a zip archive (PK3), told apart by content,
+    /// or a DeHackEd patch (`.deh`/`.bex`), mounted as a `DEHACKED` lump.
     pub fn add_file(&mut self, path: &Path) -> Result<(), ContentError> {
         let data = std::fs::read(path).map_err(|source| ContentError::Io { path: path.to_path_buf(), source })?;
         if data.starts_with(b"PK\x03\x04") || data.starts_with(b"PK\x05\x06") {
@@ -209,6 +210,13 @@ impl ResourceStack {
                 what: path.display().to_string(),
                 reason: "7z archives (PK7) are not supported; repack it as a zip/PK3".into(),
             });
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if matches!(ext.as_str(), "deh" | "bex") && !data.starts_with(b"IWAD") && !data.starts_with(b"PWAD") {
+            // A loose DeHackEd/BEX patch: mounted as a one-lump PWAD, so it
+            // applies with the WADs' DEHACKED lumps, in load order.
+            self.add_wad(WadFile::single_lump(path.to_path_buf(), "DEHACKED", data));
+            return Ok(());
         }
         self.add_wad(WadFile::parse(path.to_path_buf(), data)?);
         Ok(())

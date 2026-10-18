@@ -32,6 +32,8 @@ struct BSeg {
 
 struct Builder {
     verts: Vec<[f64; 2]>,
+    /// Each linedef's vertices: partitions run along the whole linedef.
+    lines: Vec<(usize, usize)>,
     segs: Vec<MapSeg>,
     subsectors: Vec<MapSubsector>,
     nodes: Vec<MapNode>,
@@ -51,8 +53,20 @@ fn dist(p: [f64; 2], d: [f64; 2], len: f64, q: [f64; 2]) -> f64 {
 }
 
 impl Builder {
+    /// The partition line of a seg: its whole linedef, in the seg's
+    /// direction. A split fragment's own (fractional) vertices would do
+    /// geometrically, but nodes store the line's direction in 16.16 and
+    /// `R_PointOnSide` drops the fraction (`node->dy >> FRACBITS`), so short
+    /// fractional partitions misplace points; full linedefs, with their
+    /// original vertices, are what node builders store.
+    fn part_line(&self, part: &BSeg) -> ([f64; 2], [f64; 2]) {
+        let (a, b) = self.lines[part.linedef as usize];
+        let (a, b) = if part.side == 0 { (a, b) } else { (b, a) };
+        (self.verts[a], self.verts[b])
+    }
+
     fn classify(&self, part: &BSeg, s: &BSeg) -> (Side, f64, f64) {
-        let (p, q) = (self.verts[part.v1], self.verts[part.v2]);
+        let (p, q) = self.part_line(part);
         let d = [q[0] - p[0], q[1] - p[1]];
         let len = d[0].hypot(d[1]);
         let (a, b) = (self.verts[s.v1], self.verts[s.v2]);
@@ -200,6 +214,7 @@ enum Task {
 pub fn build_nodes(map: &mut RawMap) {
     let mut b = Builder {
         verts: map.vertexes.iter().map(|v| [v.x as f64 / 65536.0, v.y as f64 / 65536.0]).collect(),
+        lines: map.linedefs.iter().map(|l| (l.v1 as usize, l.v2 as usize)).collect(),
         segs: Vec::new(),
         subsectors: Vec::new(),
         nodes: Vec::new(),
@@ -262,7 +277,7 @@ pub fn build_nodes(map: &mut RawMap) {
     for &n in &finished {
         let p = &pending[n];
         let part = p.part.expect("a split node has a partition");
-        let (a, c) = (b.verts[part.v1], b.verts[part.v2]);
+        let (a, c) = b.part_line(&part);
         let child = |c: Child| match c {
             Child::Subsector(s) => s,
             Child::Node(i) => number[i],

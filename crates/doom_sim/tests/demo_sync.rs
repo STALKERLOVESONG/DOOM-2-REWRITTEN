@@ -96,9 +96,19 @@ fn content() -> Option<Content> {
     Some(Content { stack, textures, gi, iwad_hash: format!("{:016x}", fnv1a64(&bytes)) })
 }
 
+/// Load a map, optionally replacing its nodes with the node builder's.
+fn load_level(c: &Content, map: &str, rebuild_nodes: bool) -> Level {
+    if !rebuild_nodes {
+        return Level::load(&c.stack, &c.textures, map).unwrap();
+    }
+    let mut raw = doom_content::map::RawMap::load(&c.stack, map).unwrap();
+    doom_content::nodebuild::build_nodes(&mut raw);
+    Level::from_raw(&raw, &doom_sim::level::LevelResources { stack: &c.stack, textures: &c.textures }).unwrap()
+}
+
 /// Replay `demo` and compare against `trace` (without its header line).
 /// Returns (tics in sync, total level tics in trace, report).
-fn run_demo(c: &Content, demo: &Demo, trace: &str) -> (usize, usize, String, Vec<&'static str>) {
+fn run_demo(c: &Content, demo: &Demo, trace: &str, rebuild_nodes: bool) -> (usize, usize, String, Vec<&'static str>) {
     let map = match c.gi.mode {
         doom_content::game::GameMode::Commercial => format!("MAP{:02}", demo.map),
         _ => format!("E{}M{}", demo.episode, demo.map),
@@ -116,7 +126,7 @@ fn run_demo(c: &Content, demo: &Demo, trace: &str) -> (usize, usize, String, Vec
         fastparm: demo.fastparm,
         consoleplayer: demo.consoleplayer,
     };
-    let level = Level::load(&c.stack, &c.textures, &map).unwrap();
+    let level = load_level(c, &map, rebuild_nodes);
     let content = doom_sim::content::ContentInfo::from_content(&c.stack, &c.textures);
     let mut w = World::new_game(Info::doom(), content, params, demo.playeringame, level).unwrap();
 
@@ -126,7 +136,7 @@ fn run_demo(c: &Content, demo: &Demo, trace: &str) -> (usize, usize, String, Vec
     for (gametic, (cmds, expected)) in demo.tics.iter().zip(&lines).enumerate() {
         match w.tick(cmds) {
             Some(GameAction::LoadLevel) => {
-                w.setup_level(Level::load(&c.stack, &c.textures, &map).unwrap()).unwrap();
+                w.setup_level(load_level(c, &map, rebuild_nodes)).unwrap();
                 w.tick(cmds);
             }
             Some(GameAction::Completed(_)) => {
@@ -164,7 +174,7 @@ fn iwad_demos_stay_in_sync() {
             continue;
         };
         let demo = Demo::parse(c.stack.lump(&format!("DEMO{n}")).unwrap()).unwrap();
-        let (synced, total, report, unimpl) = run_demo(&c, &demo, body);
+        let (synced, total, report, unimpl) = run_demo(&c, &demo, body, false);
         eprintln!("DEMO{n}: {synced}/{total} tics in sync; {report}; unimplemented reached: {unimpl:?}");
         assert!(synced >= floor, "DEMO{n} regressed: {synced} < {floor}");
     }
@@ -174,6 +184,22 @@ fn iwad_demos_stay_in_sync() {
 /// These must stay in sync for every recorded level tic.
 #[test]
 fn synthetic_demos_stay_in_sync() {
+    synthetic_demos(false);
+}
+
+/// Diagnostic: the same demos on maps whose nodes were replaced by the
+/// node builder's (as for UDMF maps shipped without nodes). The playsim
+/// locates sectors and traces sight through the BSP, so this shows whether
+/// the rebuilt BSP gives the same answers as id's. A different but valid
+/// BSP may legitimately flip a sight check at an exact edge, so this is not
+/// part of the normal run: `cargo test -p doom_sim --test demo_sync -- --ignored`.
+#[test]
+#[ignore]
+fn synthetic_demos_stay_in_sync_with_rebuilt_nodes() {
+    synthetic_demos(true);
+}
+
+fn synthetic_demos(rebuild_nodes: bool) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/synthetic");
     let Some(c) = content() else { return };
     let Ok(sets) = std::fs::read_dir(&dir) else {
@@ -200,7 +226,7 @@ fn synthetic_demos_stay_in_sync() {
             continue;
         };
         let demo = Demo::parse(&std::fs::read(&lmp).unwrap()).unwrap();
-        let (synced, total, report, unimpl) = run_demo(&c, &demo, body);
+        let (synced, total, report, unimpl) = run_demo(&c, &demo, body, rebuild_nodes);
         eprintln!("{name}: {synced}/{total}; {report}; unimplemented: {unimpl:?}");
         if synced < total && !report.starts_with("level exited") {
             failures.push(format!("{name}: {report}"));

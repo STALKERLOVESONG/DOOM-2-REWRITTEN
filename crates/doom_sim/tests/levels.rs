@@ -156,6 +156,6 @@ fn rebuilt_nodes_agree_with_shipped_nodes() {
         };
         let (rate_shipped, rate) = (correct(&shipped), correct(&rebuilt));
         eprintln!("{name}: {} nodes rebuilt in {ms:.1} ms; sides found: shipped {:.2}%, rebuilt {:.2}%", rebuilt.nodes.len(), rate_shipped * 100.0, rate * 100.0);
-        assert!(rate >= rate_shipped - 0.005, "{name}: rebuilt nodes place {:.2}% of probes right", rate * 100.0);
+        assert!(rate >= rate_shipped - 0.001, "{name}: rebuilt nodes place {:.2}% of probes right", rate * 100.0);
     }
 }

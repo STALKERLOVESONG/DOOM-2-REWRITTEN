@@ -1,0 +1,49 @@
+[workspace]
+members = ["crates/doom_core", "crates/doom_content", "crates/doom_sim", "crates/doom_render", "crates/doom_game", "crates/doom_audio", "crates/doom_script"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+# This project reimplements behaviour from the GPL-licensed Doom source
+# (id Software linuxdoom-1.10 / Chocolate Doom); see docs/REFERENCES.md.
+license = "GPL-2.0-or-later"
+
+[workspace.dependencies]
+doom_core = { path = "crates/doom_core" }
+doom_content = { path = "crates/doom_content" }
+doom_sim = { path = "crates/doom_sim" }
+doom_render = { path = "crates/doom_render" }
+doom_game = { path = "crates/doom_game" }
+doom_audio = { path = "crates/doom_audio" }
+doom_script = { path = "crates/doom_script" }
+
+# The Bevy host application. All engine logic lives in the dependency-free
+# crates under crates/; this package only owns windowing, input, presentation
+# and audio.
+[package]
+name = "doom_bevy"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Doom engine reimplementation: Bevy host for the doom_* engine crates"
+
+[dependencies]
+bevy = "0.16"
+clap = { version = "4", features = ["derive"] }
+doom_core.workspace = true
+doom_content.workspace = true
+doom_sim.workspace = true
+doom_render.workspace = true
+doom_game.workspace = true
+doom_audio.workspace = true
+
+# Engine crates are optimised even in dev builds: the simulation and software
+# paths are integer-heavy and unusably slow at opt-level 0.
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

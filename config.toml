@@ -1,0 +1,103 @@
+# doom_bevy configuration: written on exit, edit freely.
+
+# Classic: 320x200 palettized Doom. GZDoomClean: truecolor 3D at the display resolution.
+r_render_mode = "GZDoomClean"
+
+# Look up and down with a real camera pitch. Off keeps Doom's fixed horizon.
+cl_freelook = true
+
+# Aim shots up/down at targets like Doom. Off: shots follow the view pitch (with freelook).
+sv_autoaim = true
+
+# Melt the screen on level and screen changes.
+r_wipe = true
+
+# View size: 3..9 bordered, 10 status bar, 11 full screen.
+r_screenblocks = 10
+
+# Low detail: double-wide pixels.
+r_lowdetail = false
+
+# Gamma correction level (F11).
+vid_gamma = 0
+
+# Show pickup and status messages.
+hud_messages = true
+
+# Sound effects volume.
+snd_sfxvolume = 8
+
+# Music volume.
+snd_musicvolume = 8
+
+# Mouse sensitivity (menu slider).
+m_sensitivity = 5
+
+# How the player moves: Classic Doom walking, or Skate (skateboard, third-person camera).
+player_controller = "Classic"
+
+# Skate: push acceleration (units/s^2).
+skate_acceleration = 620.0
+
+# Skate: top pushing speed (units/s).
+skate_max_speed = 720.0
+
+# Skate: steering rate (degrees/s).
+skate_turn_rate = 190.0
+
+# Skate: carving turn and wheel grip (0..2).
+skate_carve_strength = 1.0
+
+# Skate: rolling resistance.
+skate_friction = 0.4
+
+# Skate: braking (units/s^2).
+skate_brake_strength = 900.0
+
+# Skate: ollie take-off speed (units/s).
+skate_jump_strength = 330.0
+
+# Skate: steering in the air (0..1).
+skate_air_control = 0.25
+
+# Skate: gravity (units/s^2; Doom uses 1225).
+skate_gravity = 1100.0
+
+# Skate: board length (units).
+skate_board_length = 36.0
+
+# Skate: how far from an edge the board snaps onto it (units).
+skate_grind_snap_distance = 14.0
+
+# Skate: largest approach angle to an edge that still grinds (degrees).
+skate_grind_max_angle = 50.0
+
+# Skate: tallest ledge or rail treated as grindable (units).
+skate_grind_max_height = 64.0
+
+# Skate: grind magnetism, balance help and corner following.
+skate_grind_assist = true
+
+# Skate: chase camera distance at rest (units); it backs off with speed.
+skate_camera_distance = 120.0
+
+# Skate: chase camera height above the board (units).
+skate_camera_height = 50.0
+
+# Skate: height above the board the camera looks at (units).
+skate_camera_look_height = 24.0
+
+# Skate: camera position smoothing (higher follows tighter, per second).
+skate_camera_follow = 9.0
+
+# Skate: camera turning smoothing (higher turns faster, per second).
+skate_camera_rotation = 5.0
+
+# Skate: how far the camera keeps from walls (units).
+skate_camera_radius = 8.0
+
+# Skate: closest the camera sits behind the board (units).
+skate_camera_min_distance = 64.0
+
+# Skate: farthest the camera backs off at speed (units).
+skate_camera_max_distance = 190.0

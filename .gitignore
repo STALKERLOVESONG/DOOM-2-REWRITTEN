@@ -1,1 +1,5 @@
 /target
+# Game data (IWADs, PWADs, patches) stays local: commercial IWADs must never be committed.
+/WADS/
+*.wad
+*.WAD
